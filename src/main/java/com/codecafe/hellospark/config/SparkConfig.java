@@ -9,19 +9,19 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class SparkConfig {
 
-    @Value("${spring.data.mongodb.uri}")
-    private String mongoUri;
+  @Value("${spring.data.mongodb.uri}")
+  private String mongoUri;
 
-    @Bean
-    public SparkSession sparkSession() {
-        SparkConf sparkConf = new SparkConf()
-                .setMaster("local[*]") // Set the Spark master URL or remove this line for cluster deployment
-                .setAppName("DataAggregator")
-                .set("spark.mongodb.input.uri", mongoUri);
+  @Bean
+  public SparkSession sparkSession() {
+    SparkConf sparkConf = new SparkConf()
+      .setMaster("local[*]") // Set the Spark master URL or remove this line for cluster deployment
+      .setAppName("DataAggregator")
+      .set("spark.mongodb.input.uri", mongoUri);
 
 
-        return SparkSession.builder()
-                .config(sparkConf)
-                .getOrCreate();
-    }
+    return SparkSession.builder()
+      .config(sparkConf)
+      .getOrCreate();
+  }
 }

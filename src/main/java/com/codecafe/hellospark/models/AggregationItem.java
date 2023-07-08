@@ -10,6 +10,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class AggregationItem {
-    private String name;
-    private Long value;
+
+  private String name;
+  private Long value;
+
 }

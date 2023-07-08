@@ -12,7 +12,9 @@ import java.time.Instant;
 @NoArgsConstructor
 @AllArgsConstructor
 public class OrderEventDataset {
-    private String partitionKey;
-    private Instant timestamp;
-    private Payload payload;
+
+  private String partitionKey;
+  private Instant timestamp;
+  private Payload payload;
+
 }
