@@ -1,0 +1,30 @@
+server:
+  port: 8085
+
+spring:
+  data:
+    mongodb:
+      uri: mongodb+srv://Cluster51506:VlJbZ0Z8WFld@cluster51506.vyi5v32.mongodb.net/analytics_service?retryWrites=true&w=majority
+      database: analytics_service
+
+app:
+  kafka:
+    bootstrap-servers: localhost:9092
+    topic: customer-data
+    consumer-group: orderEventsConsumerGroup
+  spark:
+    mongodb:
+      source:
+        collection: orderEvents
+      target:
+        collection: aggregatedOrdersData
+
+logging:
+  level:
+    root: INFO
+    com.spike: INFO
+    org:
+      springframework: INFO
+      mongodb: ERROR
+      apache:
+        spark: ERROR
