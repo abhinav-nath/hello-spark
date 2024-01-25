@@ -1,37 +1,76 @@
 plugins {
-    id 'java'
-    id 'org.springframework.boot' version "${springBootVersion}"
-    id 'io.spring.dependency-management' version "${springDependencyManagementVersion}"
+  id 'java'
+  id 'org.springframework.boot' version "${springBootPluginVersion}"
+  id 'io.spring.dependency-management' version "${springDependencyManagementVersion}"
 }
 
 group = 'com.codecafe'
 version = '1.0.0'
 
 java {
-    sourceCompatibility = '17'
+  sourceCompatibility = JavaVersion.VERSION_1_8
 }
 
 configurations {
-    compileOnly {
-        extendsFrom annotationProcessor
+  compileOnly {
+    extendsFrom annotationProcessor
+  }
+
+  configureEach {
+    exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+
+    resolutionStrategy.force "org.scala-lang:scala-library:${scalaVersion}"
+    resolutionStrategy.force "org.scala-lang:scala-reflect:${scalaVersion}"
+
+    resolutionStrategy.eachDependency {
+      if (it.requested.group == "io.netty") {
+        it.useVersion "${nettyVersion}"
+      }
     }
+  }
 }
 
 repositories {
-    mavenCentral()
+  mavenCentral()
 }
 
 dependencies {
-    implementation "org.springframework.boot:spring-boot-starter-data-mongodb:${springBootVersion}"
-    implementation "org.springframework.boot:spring-boot-starter-web:${springBootVersion}"
-    implementation "org.springframework.kafka:spring-kafka:${springKafkaVersion}"
-    implementation "org.apache.kafka:kafka-clients:${kafkaClientsVersion}"
-    implementation "org.apache.spark:spark-sql_2.13:${sparkSqlVersion}"
-    implementation "org.mongodb.spark:mongo-spark-connector_2.13:${mongoSparkConnectorVersion}"
-    implementation "org.mongodb:mongodb-driver-sync:${mongoDriverSyncVersion}"
-    implementation "org.apache.logging.log4j:log4j-api:${log4jVersion}"
-    implementation "org.apache.logging.log4j:log4j-to-slf4j:${log4jVersion}"
-    implementation "org.apache.logging.log4j:log4j-core:${log4jVersion}"
-    compileOnly "org.projectlombok:lombok:${lombokVersion}"
-    annotationProcessor "org.projectlombok:lombok:${lombokVersion}"
+  implementation "org.springframework:spring-core:${springCoreVersion}"
+  implementation "org.springframework.boot:spring-boot-starter-web:${springBootVersion}"
+  implementation "org.springframework.data:spring-data-commons:${springDataCommonsVersion}"
+  implementation "org.springframework.data:spring-data-mongodb:${springDataMongodbVersion}"
+  implementation "org.apache.spark:spark-sql_2.12:${sparkSqlVersion}"
+  implementation "com.fasterxml.jackson.module:jackson-module-scala_2.12:${jacksonVersion}"
+  implementation "io.netty:netty-all:${nettyVersion}"
+  implementation "io.netty:netty-buffer:${nettyVersion}"
+  implementation "io.netty:netty-transport-native-epoll:${nettyVersion}"
+  implementation "io.netty:netty-transport-native-kqueue:${nettyVersion}"
+  implementation "org.mongodb.spark:mongo-spark-connector_2.12:${mongoSparkConnectorVersion}"
+  implementation "org.mongodb:mongodb-driver-core:${mongodbDriverVersion}"
+  implementation "org.mongodb:mongodb-driver-sync:${mongodbDriverVersion}"
+  implementation "org.mongodb:bson:${mongodbDriverVersion}"
+  implementation "org.codehaus.janino:janino:3.1.10"
+  implementation "com.fasterxml.jackson.core:jackson-annotations:${jacksonVersion}"
+  implementation "com.fasterxml.jackson.core:jackson-core:${jacksonVersion}"
+  implementation "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
+
+  compileOnly "org.projectlombok:lombok:${lombokVersion}"
+  annotationProcessor "org.projectlombok:lombok:${lombokVersion}"
+
+  testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:${junitJupiterVersion}"
+  testImplementation "de.bwaldvogel:mongo-java-server:${mongoJavaServerVersion}"
+  testImplementation "org.junit.jupiter:junit-jupiter-api:${junitJupiterVersion}"
+  testImplementation "org.springframework.boot:spring-boot-starter-test:${springBootVersion}"
+  testImplementation "org.mongodb:mongodb-driver-sync:${mongodbDriverVersion}"
+  testImplementation "org.scala-lang:scala-library:${scalaVersion}"
+  testImplementation "org.scala-lang:scala-reflect:${scalaVersion}"
+  testImplementation "org.apache.logging.log4j:log4j-core:${log4jVersion}"
+  testImplementation "org.apache.logging.log4j:log4j-api:${log4jVersion}"
+  testImplementation("org.apache.logging.log4j:log4j-slf4j-impl:${log4jVersion}") {
+    exclude module: "log4j-to-slf4j"
+  }
+}
+
+test {
+  useJUnitPlatform()
 }

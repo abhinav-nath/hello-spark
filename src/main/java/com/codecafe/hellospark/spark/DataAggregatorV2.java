@@ -1,29 +1,20 @@
 package com.codecafe.hellospark.spark;
 
-import static com.codecafe.hellospark.models.FieldNames.CARD_ISSUING_COUNTRY;
-import static com.codecafe.hellospark.models.FieldNames.CHANNEL;
-import static com.codecafe.hellospark.models.FieldNames.CURRENCY;
-import static com.codecafe.hellospark.models.FieldNames.OUTLET_REFERENCE;
-import static com.codecafe.hellospark.models.FieldNames.SHOPPER_LOCATION;
-import static com.codecafe.hellospark.models.FieldNames.SHOPPER_TYPE;
 import static com.codecafe.hellospark.models.FieldNames.TIMESTAMP;
 import static com.mongodb.client.model.Filters.lte;
 import static java.time.temporal.ChronoUnit.DAYS;
 import static java.time.temporal.ChronoUnit.HOURS;
 import static java.time.temporal.ChronoUnit.MINUTES;
-import static org.apache.spark.sql.functions.coalesce;
 import static org.apache.spark.sql.functions.col;
 import static org.apache.spark.sql.functions.collect_list;
+import static org.apache.spark.sql.functions.concat;
+import static org.apache.spark.sql.functions.concat_ws;
 import static org.apache.spark.sql.functions.count;
-import static org.apache.spark.sql.functions.expr;
 import static org.apache.spark.sql.functions.lit;
 import static org.apache.spark.sql.functions.struct;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Date;
-import java.util.List;
 
 import org.apache.spark.sql.Column;
 import org.apache.spark.sql.Dataset;
@@ -32,7 +23,6 @@ import org.apache.spark.sql.SparkSession;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.bson.types.ObjectId;
-import org.jetbrains.annotations.NotNull;
 import org.springframework.beans.factory.annotation.Value;
 
 import com.codecafe.hellospark.models.JobDetails;
@@ -48,14 +38,12 @@ import com.mongodb.client.model.Updates;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
 
-public class DataAggregator {
+public class DataAggregatorV2 {
 
   static final String DATABASE_NAME = "analytics-service";
   static final String SOURCE_COLLECTION = "transactionData";
   static final String JOB_DETAILS_COLLECTION = "jobDetails";
   static final String TARGET_COLLECTION = "aggregatedData";
-  private final int timeToAdd = 30;
-  private final int transactionDataTtlInDays = 30;
   private final SparkSession sparkSession;
   private final MongoCollection<Document> transactionDataCollection;
   private final MongoCollection<Document> jobDetailsCollection;
@@ -63,7 +51,7 @@ public class DataAggregator {
   @Value("${spring.data.mongodb.uri}")
   private final String mongoUri;
 
-  public DataAggregator(String mongoUri) {
+  public DataAggregatorV2(String mongoUri) {
     this.sparkSession = SparkSession.active();
     this.mongoUri = mongoUri;
 
@@ -93,12 +81,13 @@ public class DataAggregator {
   }
 
   public void process() {
-    log("DataAggregator Spark Job Triggered");
+    log("DataAggregatorV2 Spark Job Triggered");
 
-    JobDetails latestJobDetails = null;
+    JobDetails latestJobDetails;
 
     try {
       latestJobDetails = getLatestJobEndTime();
+      int timeToAdd = 30;
       TimeSlidingWindow timeSlidingWindow = new TimeSlidingWindow(latestJobDetails.getEndTime(), timeToAdd, MINUTES);
 
       while (timeSlidingWindow.getEndTime().isBefore(Instant.now())) {
@@ -140,151 +129,33 @@ public class DataAggregator {
   private Dataset<Row> groupAndAggregate(Dataset<Row> transactionDataDf, Instant jobStartTime, Instant jobEndTime) {
     log("Performing aggregations");
 
-    List<Dataset<Row>> dataframesToJoin = new ArrayList<>();
+    String[] filters = "cha,cur,sloc,sty,cic".split(",");
 
-    // Aggregate shopperLocations
-    Dataset<Row> shopperLocationsDf = aggregateBy(SHOPPER_LOCATION, "shopperLocations",
-      transactionDataDf);
-    if (!shopperLocationsDf.isEmpty()) {
-      dataframesToJoin.add(shopperLocationsDf);
+    Column nameCol = lit("");
+    for (String filter : filters) {
+      if (nameCol.toString().isEmpty()) {
+        nameCol = concat(lit(filter + ":"), col(filter));
+      } else {
+        nameCol = concat_ws(",", nameCol,
+          concat(lit(filter + ":"), col(filter)));
+      }
     }
 
-    // Aggregate cardIssuingCountries
-    Dataset<Row> cardIssuingCountriesDf = aggregateBy(CARD_ISSUING_COUNTRY, "cardIssuingCountries",
-      transactionDataDf);
-    if (!cardIssuingCountriesDf.isEmpty()) {
-      dataframesToJoin.add(cardIssuingCountriesDf);
-    }
+    Dataset<Row> df = transactionDataDf
+      .groupBy("or", filters)
+      .agg(count("*").as("count"))
+      .withColumn("name", nameCol)
+      .groupBy("or")
+      .agg(collect_list(struct("name", "count")).as("filters"))
+      .withColumn("outletId", col("or"))
+      .withColumn("startTime", lit(jobStartTime.toString()))
+      .withColumn("endTime", lit(jobEndTime.toString()))
+      .select("outletId", "startTime", "endTime", "filters");
 
-    // Aggregate shopperTypes
-    Dataset<Row> shopperTypesDf = aggregateBy(SHOPPER_TYPE, "shopperTypes",
-      transactionDataDf);
-    if (!shopperTypesDf.isEmpty()) {
-      dataframesToJoin.add(shopperTypesDf);
-    }
-
-    // Use reduce to perform inner joins on the list of DataFrames
-    Dataset<Row> df = dataframesToJoin.stream()
-      .reduce((joinedDf, nextDf) -> {
-        if (joinedDf.isEmpty()) {
-          return nextDf;
-        }
-
-        nextDf = nextDf
-          .withColumnRenamed("outletId", "next_outletId")
-          .withColumnRenamed("currency", "next_currency")
-          .withColumnRenamed("channel", "next_channel");
-
-        joinedDf = joinedDf.join(nextDf,
-          joinedDf.col("outletId").equalTo(nextDf.col("next_outletId"))
-            .and(joinedDf.col("currency").equalTo(nextDf.col("next_currency")))
-            .and(joinedDf.col("channel").equalTo(nextDf.col("next_channel"))),
-          "full_outer");
-
-        joinedDf = joinedDf
-          .withColumn("outletId",
-            coalesce(col("outletId"), col("next_outletId")))
-          .withColumn("currency",
-            coalesce(col("currency"), col("next_currency")))
-          .withColumn("channel",
-            coalesce(col("channel"), col("next_channel")))
-          .drop("next_outletId", "next_currency", "next_channel");
-
-        return joinedDf;
-      })
-      .orElse(sparkSession.emptyDataFrame());
-
-    log("After 1st aggregation");
+    log("After aggregation");
     df.show(false);
 
-    if (!df.isEmpty()) {
-      // Group and aggregate to get paymentTransactions
-      df = df.groupBy(
-          col("outletId"),
-          col("currency")
-        )
-        .agg(
-          collect_list(
-            buildStructForPaymentTransactions(df)
-          ).alias("paymentTransactions")
-        )
-        .select(
-          col("outletId").alias("outletId"),
-          lit(jobStartTime.toString()).alias("startTime"),
-          lit(jobEndTime.toString()).alias("endTime"),
-          col("paymentTransactions")
-        );
-
-      log("After 2nd aggregation");
-      df.show(false);
-
-      return df;
-    }
-
-    return sparkSession.emptyDataFrame();
-  }
-
-  @NotNull
-  private Column buildStructForPaymentTransactions(Dataset<Row> df) {
-    boolean hasShopperLocations = Arrays.asList(df.columns()).contains("shopperLocations");
-    boolean hasCardIssuingCountries = Arrays.asList(df.columns()).contains("cardIssuingCountries");
-    boolean hasShopperTypes = Arrays.asList(df.columns()).contains("shopperTypes");
-
-    String structExpression = "named_struct(" +
-      "'currency', currency, 'channel', channel";
-
-    if (hasShopperLocations) {
-      structExpression += ", 'shopperLocations', shopperLocations";
-    }
-
-    if (hasCardIssuingCountries) {
-      structExpression += ", 'cardIssuingCountries', cardIssuingCountries";
-    }
-
-    if (hasShopperTypes) {
-      structExpression += ", 'shopperTypes', shopperTypes";
-    }
-
-    structExpression += ")";
-
-    return expr(structExpression);
-  }
-
-  private Dataset<Row> aggregateBy(String columnName, String aggregatedFieldName, Dataset<Row> transactionDataDf) {
-    if (Arrays.asList(transactionDataDf.columns()).contains(columnName)) {
-
-      Dataset<Row> filteredTransactionDataDf = transactionDataDf.filter(col(columnName).isNotNull());
-
-      if (filteredTransactionDataDf.isEmpty()) {
-        return sparkSession.emptyDataFrame();
-      }
-
-      Dataset<Row> dataset = filteredTransactionDataDf
-        .groupBy(
-          col(OUTLET_REFERENCE).alias("outletId"),
-          col(CURRENCY).alias("currency"),
-          col(CHANNEL).alias("channel"),
-          col(columnName)
-        )
-        .agg(count("*").alias("count"))
-        .groupBy(
-          col("outletId"),
-          col("currency"),
-          col("channel")
-        )
-        .agg(
-          collect_list(
-            struct(
-              col(columnName).alias("name"),
-              col("count").alias("count")
-            )
-          ).alias(aggregatedFieldName)
-        );
-      log(aggregatedFieldName);
-      dataset.show(false);
-      return dataset;
-    }
-    return sparkSession.emptyDataFrame();
+    return df;
   }
 
   private void saveToMongo(Dataset<Row> aggregatedDataDf) {
@@ -335,6 +206,7 @@ public class DataAggregator {
   }
 
   private void purgeHistoricalRecords(Instant startTime) {
+    int transactionDataTtlInDays = 30;
     log("Deleting transactionData records older than " + transactionDataTtlInDays + " days");
     Bson deleteRecordsFilter = lte(TIMESTAMP, startTime.minus(transactionDataTtlInDays, DAYS));
     try {
@@ -346,7 +218,7 @@ public class DataAggregator {
   }
 
   private void log(String msg) {
-    System.out.println(DataAggregator.class.getCanonicalName() + " " + msg);
+    System.out.println(DataAggregatorV2.class.getCanonicalName() + " " + msg);
   }
 
 }

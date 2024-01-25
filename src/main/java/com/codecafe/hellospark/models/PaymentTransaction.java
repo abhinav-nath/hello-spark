@@ -11,11 +11,12 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class AggregatedData {
+public class PaymentTransaction {
 
-  private String outletId;
-  private String startTime;
-  private String endTime;
-  private List<PaymentTransaction> paymentTransactions;
+  private String currency;
+  private String channel;
+  private List<AggregationItem> shopperLocations;
+  private List<AggregationItem> cardIssuingCountries;
+  private List<AggregationItem> shopperTypes;
 
 }

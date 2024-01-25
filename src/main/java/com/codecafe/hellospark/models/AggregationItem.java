@@ -3,15 +3,16 @@ package com.codecafe.hellospark.models;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-@Data
+@Getter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class AggregationItem {
 
   private String name;
-  private Long value;
+  private Long count;
 
 }
